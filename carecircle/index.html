@@ -1,0 +1,77 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CareCircle</title>
+<style>
+:root{--bg:#f4f6fb;--c:#fff;--t:#1b2233;--m:#5a6579;--p:#2563eb;--ok:#15803d;--bad:#dc2626;--w:#b45309;--b:#e1e5ee;font-size:17px}
+@media(prefers-color-scheme:dark){:root{--bg:#0f1420;--c:#19202f;--t:#eef1f7;--m:#9aa5ba;--b:#2a3348;--p:#5b8cff;--ok:#4ade80;--bad:#f87171;--w:#fbbf24}}
+body.big{font-size:22px}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--t);font-family:system-ui,sans-serif}
+main{max-width:720px;margin:auto;padding:16px 16px 90px}h1,h2,h3{margin:.3em 0}.card{background:var(--c);border:1px solid var(--b);border-radius:14px;padding:14px;margin:10px 0}
+button,input,select{font:inherit;border-radius:10px;border:1px solid var(--b);padding:10px 12px;background:var(--c);color:var(--t)}input,select{width:100%;margin:4px 0}
+button{cursor:pointer;background:var(--p);color:#fff;border:0;font-weight:600}button.g{background:transparent;color:var(--p);border:1px solid var(--b)}button.ok{background:var(--ok)}button.bad{background:var(--bad)}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.sp{justify-content:space-between}.m{color:var(--m);font-size:.85em}.tag{font-size:.75em;padding:2px 8px;border-radius:99px;border:1px solid var(--b)}
+.late{border-color:var(--bad)}.done{opacity:.6}nav{position:fixed;bottom:0;left:0;right:0;background:var(--c);border-top:1px solid var(--b);display:flex;padding-bottom:env(safe-area-inset-bottom)}
+nav button{flex:1;background:none;color:var(--m);border-radius:0;padding:14px 4px}nav button.on{color:var(--p)}.bars{display:flex;gap:6px;align-items:flex-end;height:70px}.bars div{flex:1;background:var(--p);border-radius:4px 4px 0 0;min-height:3px}
+</style></head><body><main id="app"></main><nav id="nav" hidden></nav>
+<script>
+const $=s=>document.querySelector(s),uid=()=>Math.random().toString(36).slice(2,9),esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const day=(d=new Date())=>d.toLocaleDateString('en-CA'),hm=()=>new Date().toTimeString().slice(0,5);
+let S=null,sess=JSON.parse(localStorage.cc_sess||'null'),tab='today',cloud=false;
+if(localStorage.cc_big)document.body.classList.add('big');
+async function api(b){try{const r=await fetch('/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});return r.ok?{s:200,...await r.json()}:{s:r.status}}catch(e){return{s:0}}}
+function save(){S.updated=Date.now();localStorage['cc_p_'+sess.id]=JSON.stringify(S);if(cloud)api({id:sess.id,pass:sess.pass,action:'put',data:S});render()}
+async function join(f){const id=f.id.toLowerCase().replace(/[^a-z0-9-]/g,'-'),pass=f.pass,me={name:f.name,role:f.role,email:f.email};
+ if(id.length<3||!pass||!me.name)return alert('Fill profile id (3+ chars), passcode and your name.');
+ let r=await api({id,pass,action:'get'});
+ if(r.s===401)return alert('Wrong passcode.');
+ if(r.s===200){S=r.data;cloud=true}else{
+  const loc=localStorage['cc_p_'+id];if(r.s!==404&&loc)S=JSON.parse(loc);
+  if(!S){S={name:f.elder||id,tz:Intl.DateTimeFormat().resolvedOptions().timeZone,members:[],meds:[],appts:[],log:{},updated:0};}
+  cloud=r.s===404}
+ sess={id,pass,me};localStorage.cc_sess=JSON.stringify(sess);
+ const m=S.members.find(x=>x.name===me.name);if(m)Object.assign(m,me);else S.members.push(me);
+ if(cloud&&r.s===404)await api({id,pass,action:'put',data:S});save();askNotif();}
+function logout(){delete localStorage.cc_sess;sess=null;S=null;render()}
+const isElder=()=>sess.me.role==='Elder';
+function slots(){const t=day(),n=hm(),out=[];for(const m of S.meds.filter(m=>!m.pending))for(const tm of m.times){const k=`${t}|${m.id}|${tm}`;const l=S.log[k];
+ const mins=x=>+x.slice(0,2)*60+ +x.slice(3);out.push({m,tm,k,l,late:!l&&mins(n)-mins(tm)>60,due:!l&&mins(tm)<=mins(n)})}return out.sort((a,b)=>a.tm.localeCompare(b.tm))}
+function week(){const res=[];let miss={};for(let i=6;i>=0;i--){const d=new Date(Date.now()-i*864e5),ds=day(d);let tot=0,tk=0;
+ for(const m of S.meds.filter(m=>!m.pending&&(m.created||'')<=ds))for(const tm of m.times){tot++;const l=S.log[`${ds}|${m.id}|${tm}`];if(l&&l.s==='taken')tk++;else if(i>0)miss[tm]=(miss[tm]||0)+1}
+ res.push({ds,p:tot?Math.round(tk/tot*100):0,tot})}const w=Object.entries(miss).sort((a,b)=>b[1]-a[1])[0];return{res,w}}
+function mark(k,s){S.log[k]={s,by:sess.me.name,at:Date.now()};save()}
+function speak(t){try{speechSynthesis.speak(new SpeechSynthesisUtterance(t))}catch(e){}}
+function askNotif(){if('Notification'in window&&Notification.permission==='default')Notification.requestPermission()}
+setInterval(()=>{if(!S||!isElder()||!('Notification'in window)||Notification.permission!=='granted')return;
+ slots().filter(s=>!s.l&&s.tm===hm()&&!window['n'+s.k]).forEach(s=>{window['n'+s.k]=1;new Notification('Time for '+s.m.name,{body:s.m.dose||''});speak('Time to take '+s.m.name)})},20000);
+setInterval(async()=>{if(!S||!cloud)return;const r=await api({id:sess.id,pass:sess.pass,action:'get'});if(r.s===200&&r.data.updated>S.updated){S=r.data;render()}},20000);
+function help(){const to=S.members.filter(m=>m.email&&m.name!==sess.me.name).map(m=>m.email).join(',');
+ location.href=`mailto:${to}?subject=${encodeURIComponent(S.name+' needs help')}&body=${encodeURIComponent('Please check in on '+S.name+' as soon as you can.')}`}
+function login(){return `<h1>CareCircle</h1><p class="m">One shared health profile for the elder, caretakers and family. Everyone joins with the profile passcode.</p>
+<div class="card"><input id="id" placeholder="Profile id (e.g. grandma-sharma)"><input id="pass" type="password" placeholder="Shared passcode">
+<input id="elder" placeholder="Elder full name (when creating)"><input id="name" placeholder="Your name"><select id="role"><option>Elder</option><option>Caretaker</option><option>Family</option></select>
+<input id="email" type="email" placeholder="Your email (for reminders)"><button style="width:100%;margin-top:8px" onclick="join({id:id.value,pass:pass.value,elder:elder.value,name:name.value,role:role.value,email:email.value})">Open / create profile</button></div>
+<p class="m">New id = new profile. Existing id + correct passcode = join it.</p>`}
+function today(){const sl=slots(),w=week(),pend=S.meds.filter(m=>m.pending);
+ const ok=sl.filter(s=>s.l&&s.l.s==='taken').length;
+ return `<div class="row sp"><h1>${isElder()?'Hello, '+esc(sess.me.name):esc(S.name)}</h1><button class="bad" onclick="help()">Need help</button></div>
+ ${isElder()&&pend.length?`<div class="card"><h3>Changes waiting for your OK</h3>${pend.map(m=>`<div class="row sp"><span>${esc(m.name)} ${esc(m.dose)} at ${m.times.join(', ')}<br><span class="m">proposed by ${esc(m.by)}</span></span><span class="row"><button class="ok" onclick="appr('${m.id}',1)">Approve</button><button class="g" onclick="appr('${m.id}',0)">Reject</button></span></div>`).join('')}</div>`:''}
+ <p class="m">${ok} of ${sl.length} doses taken today</p>
+ ${sl.map(s=>`<div class="card ${s.late?'late':''} ${s.l?'done':''}"><div class="row sp"><div><b>${s.tm}</b> ${esc(s.m.name)} <span class="m">${esc(s.m.dose)}</span>${s.m.notes?`<div class="m">${esc(s.m.notes)}</div>`:''}</div>
+ ${s.l?`<span class="tag">${s.l.s} by ${esc(s.l.by)}</span>`:`<span class="row"><button class="ok" onclick="mark('${s.k}','taken')">Taken</button><button class="g" onclick="mark('${s.k}','skipped')">Skip</button></span>`}</div>${s.late?'<div class="m" style="color:var(--bad)">Missed. Family will be emailed.</div>':''}</div>`).join('')||'<p class="m">No medications yet. Add one in the Meds tab.</p>'}
+ <div class="card"><h3>Last 7 days adherence</h3><div class="bars">${w.res.map(d=>`<div title="${d.ds}: ${d.p}%" style="height:${Math.max(d.p,4)}%"></div>`).join('')}</div>
+ ${w.w?`<p class="m">Insight: the ${w.w[0]} dose is missed most often (${w.w[1]} times this week). Consider moving it or adding a nearby routine cue.</p>`:'<p class="m">Great week so far.</p>'}</div>`}
+function appr(id,y){const i=S.meds.findIndex(m=>m.id===id);if(y)delete S.meds[i].pending;else S.meds.splice(i,1);save()}
+function meds(){return `<h1>Medications</h1>${S.meds.map(m=>`<div class="card"><div class="row sp"><div><b>${esc(m.name)}</b> ${esc(m.dose)} ${m.pending?'<span class="tag">awaiting elder OK</span>':''}<div class="m">${m.times.join(', ')} ${esc(m.notes)}</div></div><button class="g" onclick="delMed('${m.id}')">Remove</button></div></div>`).join('')}
+ <div class="card"><h3>Add medication</h3><input id="mn" placeholder="Name"><input id="md" placeholder="Dose (e.g. 500 mg)"><input id="mt" placeholder="Times, 24h comma separated: 08:00, 20:00"><input id="mo" placeholder="Notes (after food...)">
+ <button onclick="addMed()">${isElder()?'Add':'Propose to elder'}</button></div>`}
+function addMed(){const times=mt.value.split(',').map(x=>x.trim()).filter(x=>/^\d\d:\d\d$/.test(x));if(!mn.value||!times.length)return alert('Need a name and times like 08:00');
+ S.meds.push({id:uid(),name:mn.value,dose:md.value,times,notes:mo.value,created:day(),by:sess.me.name,pending:!isElder()||undefined});save()}
+function delMed(id){if(confirm('Remove this medication?')){S.meds=S.meds.filter(m=>m.id!==id);save()}}
+function appts(){const a=[...S.appts].sort((x,y)=>x.dt.localeCompare(y.dt));return `<h1>Appointments</h1>${a.map(x=>`<div class="card row sp"><div><b>${esc(x.title)}</b> ${esc(x.doctor)}<div class="m">${x.dt.replace('T',' ')} ${esc(x.notes)}</div></div><button class="g" onclick="S.appts=S.appts.filter(z=>z.id!=='${x.id}');save()">Remove</button></div>`).join('')}
+ <div class="card"><h3>Add appointment</h3><input id="at" placeholder="Title (e.g. Cardiology check-up)"><input id="ad" placeholder="Doctor / clinic"><input id="adt" type="datetime-local"><input id="an" placeholder="Notes">
+ <button onclick="if(!at.value||!adt.value)return alert('Title and date needed');S.appts.push({id:uid(),title:at.value,doctor:ad.value,dt:adt.value,notes:an.value});save()">Add</button></div>`}
+function fam(){return `<h1>Care circle</h1>${S.members.map(m=>`<div class="card row sp"><div><b>${esc(m.name)}</b> <span class="tag">${m.role}</span><div class="m">${esc(m.email||'no email')}</div></div></div>`).join('')}
+ <div class="card"><p class="m">Share the profile id <b>${esc(sess.id)}</b> and the passcode with family. ${cloud?'Cloud sync is on.':'Cloud sync is off, data stays on this device.'}</p>
+ <div class="row"><button class="g" onclick="document.body.classList.toggle('big');localStorage.cc_big=document.body.classList.contains('big')?1:''">Larger text</button><button class="g" onclick="speak('Hello '+sess.me.name+', you have '+slots().filter(s=>!s.l).length+' doses left today')">Read aloud</button><button class="g" onclick="logout()">Switch user</button></div></div>`}
+function render(){const nav=$('#nav');if(!S){nav.hidden=true;$('#app').innerHTML=login();return}
+ nav.hidden=false;nav.innerHTML=[['today','Today'],['meds','Meds'],['appts','Visits'],['fam','Family']].map(([k,l])=>`<button class="${tab===k?'on':''}" onclick="tab='${k}';render()">${l}</button>`).join('');
+ $('#app').innerHTML={today,meds,appts,fam}[tab]()}
+if(sess){const loc=localStorage['cc_p_'+sess.id];join({id:sess.id,pass:sess.pass,name:sess.me.name,role:sess.me.role,email:sess.me.email||''}).then(()=>{if(!S&&loc){S=JSON.parse(loc);render()}})}else render();
+</script></body></html>

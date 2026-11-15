@@ -28,6 +28,7 @@ function speak(t){if(!voice)return;try{speechSynthesis.cancel();const u=new Spee
 document.addEventListener('click',e=>{const b=e.target.closest('button');if(b&&!b.dataset.silent)speak(b.getAttribute('aria-label')||b.textContent)});
 async function api(b){try{const r=await fetch('/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});return r.ok?{s:200,...await r.json()}:{s:r.status}}catch(e){return{s:0}}}
 function save(){S.updated=Date.now();try{localStorage['cc_p_'+sess.id]=JSON.stringify(S)}catch(e){}if(cloud){clearTimeout(saveT);saveT=setTimeout(()=>api({id:sess.id,pass:sess.pass,action:'put',data:S}),400)}render()}
+function doJoin(){const g=i=>document.getElementById(i).value;join({id:g('id'),pass:g('pass'),elder:g('elder'),name:g('name'),role:g('role'),email:g('email')})}
 async function join(f){const id=f.id.toLowerCase().replace(/[^a-z0-9-]/g,'-'),pass=f.pass,me={name:f.name.trim(),role:f.role,email:f.email.trim()};
  if(id.length<3||!pass||!me.name)return alert('Please fill profile id (3+ letters), passcode and your name.');
  let r=await api({id,pass,action:'get'});if(r.s===401)return alert('Wrong passcode.');
@@ -57,7 +58,7 @@ function help(){const to=S.members.filter(m=>m.email&&m.name!==sess.me.name).map
 setInterval(()=>{if(!S||!isElder())return;slots().filter(s=>!s.l&&s.tm===hm()&&!window['n'+s.k]).forEach(s=>{window['n'+s.k]=1;speak('Time to take '+s.m.name+', '+s.m.dose+'. Please take a photo.');if('Notification'in window&&Notification.permission==='granted')new Notification('Time for '+s.m.name,{body:s.m.dose})})},20000);
 setInterval(async()=>{if(!S||!cloud||document.hidden)return;const r=await api({id:sess.id,pass:sess.pass,action:'get'});if(r.s===200&&r.data.updated>S.updated){S=r.data;render()}},25000);
 function login(){return `<h1>💊 CareCircle</h1><p class="m">One shared health profile for the elder, caretakers and family.</p><div class="card"><label>Profile id<input id="id" placeholder="e.g. grandma-sharma"></label><label>Shared passcode<input id="pass" type="password"></label><label>Elder full name (when creating)<input id="elder"></label><label>Your name<input id="name"></label><label>Your role<select id="role"><option>Elder</option><option>Caretaker</option><option>Family</option></select></label><label>Your email (for reminders)<input id="email" type="email"></label>
-<button style="width:100%;margin-top:8px" onclick="join({id:id.value,pass:pass.value,elder:elder.value,name:name.value,role:role.value,email:email.value})">🔑 Open or create profile</button></div>`}
+<button style="width:100%;margin-top:8px" onclick="doJoin()">🔑 Open or create profile</button></div>`}
 function today(){const sl=slots(),pend=S.meds.filter(m=>m.pending),ok=sl.filter(s=>s.l&&s.l.s==='taken').length,nx=sl.find(s=>!s.l&&mins(s.tm)>=mins(hm())),ch=S.cheers[S.cheers.length-1],st=stats();
  return `<div class="row sp"><h1>${isElder()?'Hello, '+esc(sess.me.name):esc(S.name)}</h1><span class="row">${S.emergency?`<a href="tel:${esc(S.emergency)}"><button class="bad" aria-label="Emergency call">🚨 Emergency</button></a>`:''}<button class="bad" onclick="help()" aria-label="Need help, email family">🆘 Help</button></span></div>
  ${nx?`<div class="card bn"><b>⏰ Next dose: ${esc(nx.m.name)} in ${Math.floor((mins(nx.tm)-mins(hm()))/60)}h ${(mins(nx.tm)-mins(hm()))%60}m</b></div>`:''}
